@@ -1,0 +1,9 @@
+[package]
+name = "ezcbor"
+version = "0.0.1"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Easy little cbor library"
+homepage = "https://github.com/lord-hellgrim/ezcbor"
+repository = "https://github.com/lord-hellgrim/ezcbor"
+readme = "README.md"

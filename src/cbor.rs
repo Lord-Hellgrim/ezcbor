@@ -1,0 +1,208 @@
+
+pub enum DataItem {
+    SmallInt(u8),
+    SmallNegInt(i8),
+    Uint1,
+    Uint2,
+    Uint4,
+    Uint8,
+    NegUint1,
+    NegUint2,
+    NegUint4,
+    NegUint8,
+    SmallByteString(usize),
+    ByteString1,
+    ByteString2,
+    ByteString4,
+    ByteString8,
+    TerminatedByteString,
+    SmallTextString(usize),
+    TextString1,
+    TextString2,
+    TextString4,
+    TextString8,
+    TerminatedTextString,
+    SmallArray(usize),
+    Array1,
+    Array2,
+    Array4,
+    Array8,
+    TerminatedArray,
+    SmallMap(usize),
+    Map1,
+    Map2,
+    Map4,
+    Map8,
+    TerminatedMap,
+    Tag(u8),
+    SimpleOrFloat,
+    NotSupported,
+    UnsignedBigNum,
+    NegativeBigNum,
+    Bool(bool),
+    Null,
+    Undefined,
+    Float2,
+    Float4,
+    Float8,
+    Stop,
+    InvalidByte,
+}
+
+#[derive(Debug)]
+pub enum CborError {
+    IllFormed,
+    Unexpected,
+}
+
+pub trait Cbor {
+    fn to_cbor_bytes(&self) -> Vec<u8>;
+
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<Self, CborError>
+        where 
+            Self: Sized;
+}
+
+impl Cbor for Vec<u8> {
+    fn to_cbor_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.push(0x5b);
+        bytes.extend_from_slice(&self.len().to_be_bytes());
+        bytes.extend_from_slice(self);
+        bytes
+    }
+
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<Self, CborError>
+    where 
+        Self: Sized 
+    {
+        let mut v = Vec::new();
+        match expected_data_item(bytes[0]) {
+            DataItem::ByteString8 => {
+                let data_len = u64::from_be_bytes([bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8]]) as usize;
+                println!("data_len: {}", data_len);
+                v.extend_from_slice(&bytes[9..9+data_len]);
+            },
+            _ => return Err(CborError::Unexpected)
+        };
+        Ok(v)
+    }
+}
+
+impl Cbor for u8 {
+    fn to_cbor_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        match self {
+            0x00..0x18 => bytes.push(*self),
+            _ => {
+                bytes.push(0x18);
+                bytes.push(*self);
+            }
+        }
+        bytes
+    }
+
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<Self, CborError>
+        where 
+            Self: Sized 
+    {
+        match expected_data_item(bytes[0]) {
+            DataItem::SmallInt(byte) => Ok(byte),
+            DataItem::Uint1 => Ok(bytes[1]),
+            _ => return Err(CborError::Unexpected)
+        }
+    }
+}
+
+impl Cbor for u16 {
+    fn to_cbor_bytes(&self) -> Vec<u8> {
+        vec![0x19, self.to_be_bytes()[0], self.to_be_bytes()[1]]
+    }
+
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<Self, CborError>
+        where 
+            Self: Sized 
+    {
+        match expected_data_item(bytes[0]) {
+            DataItem::Uint2 => Ok(u16::from_be_bytes([bytes[1], bytes[2]])),
+            _ => return Err(CborError::Unexpected)
+        }
+    }
+}
+
+#[inline]
+fn expected_data_item(byte: u8) -> DataItem {
+    println!("byte: {}", byte);
+    match byte {
+        0x00..0x18  => DataItem::SmallInt(byte),                    //unsigned integer 0x00..0x17 (0..23),
+        0x18        => DataItem::Uint1,                           //unsigned integer (one-byte uint8_t follows),
+        0x19        => DataItem::Uint2,                           //unsigned integer (two-byte uint16_t follows),
+        0x1a        => DataItem::Uint4,                           //unsigned integer (four-byte uint32_t follows),
+        0x1b        => DataItem::Uint8,                           //unsigned integer (eight-byte uint64_t follows),
+        0x20..0x38  => DataItem::SmallNegInt(0x20 - byte as i8),    //negative integer -1-0x00..-1-0x17 (-1..-24),
+        0x38        => DataItem::NegUint1,                        //negative integer -1-n (one-byte uint8_t for n follows),
+        0x39        => DataItem::NegUint2,                        //negative integer -1-n (two-byte uint16_t for n follows),
+        0x3a        => DataItem::NegUint4,                        //negative integer -1-n (four-byte uint32_t for n follows),
+        0x3b        => DataItem::NegUint8,                        //negative integer -1-n (eight-byte uint64_t for n follows),
+        0x40..0x58  => DataItem::SmallByteString(byte as usize-0x40),    //byte string (0x00..0x17 bytes follow),
+        0x58        => DataItem::ByteString1,      //byte string (one-byte uint8_t for n, and then  n bytes follow),
+        0x59        => DataItem::ByteString2,      //byte string (two-byte uint16_t for n, and then n bytes follow),
+        0x5a        => DataItem::ByteString4,      //byte string (four-byte uint32_t for n, and then n bytes follow),
+        0x5b        => DataItem::ByteString8,      //byte string (eight-byte uint64_t for n, and then n bytes follow),
+        0x5f        => DataItem::TerminatedByteString,      //byte string, byte strings follow, terminated by "break",
+        0x60..0x78  => DataItem::SmallTextString(byte as usize-0x40),      //UTF-8 string (0x00..0x17 bytes follow),
+        0x78        => DataItem::TextString1,      //UTF-8 string (one-byte uint8_t for n, and then n bytes follow),
+        0x79        => DataItem::TextString2,      //UTF-8 string (two-byte uint16_t for n, and then n bytes follow),
+        0x7a        => DataItem::TextString4,      //UTF-8 string (four-byte uint32_t for n, and then n bytes follow),
+        0x7b        => DataItem::TextString8,      //UTF-8 string (eight-byte uint64_t for n, and then n bytes follow),
+        0x7f        => DataItem::TerminatedTextString,      //UTF-8 string, UTF-8 strings follow, terminated by "break",
+        0x80..0x98  => DataItem::SmallArray(byte as usize - 0x40),      //array (0x00..0x17 data items follow),
+        0x98        => DataItem::Array1,      //array (one-byte uint8_t for n, and then n data  items follow),
+        0x99        => DataItem::Array2,      //array (two-byte uint16_t for n, and then n data items follow),
+        0x9a        => DataItem::Array4,      //array (four-byte uint32_t for n, and then n data items follow),
+        0x9b        => DataItem::Array8,      //array (eight-byte uint64_t for n, and then n data items follow),
+        0x9f        => DataItem::TerminatedArray,      //array, data items follow, terminated by "break",
+        0xa0..0xb8  => DataItem::SmallMap(byte as usize - 0x40),      //map (0x00..0x17 pairs of data items follow),
+        0xb8        => DataItem::Map1,      //map (one-byte uint8_t for n, and then n pairs of data items follow),
+        0xb9        => DataItem::Map2,      //map (two-byte uint16_t for n, and then n pairs of data items follow),
+        0xba        => DataItem::Map4,      //map (four-byte uint32_t for n, and then n pairs of data items follow),
+        0xbb        => DataItem::Map8,      //map (eight-byte uint64_t for n, and then n pairs of data items follow),
+        0xbf        => DataItem::TerminatedMap,      //map, pairs of data items follow, terminated by "break",
+        0xc0        => DataItem::NotSupported,      //text-based date/time (data item follows; see Section 3.4.1),
+        0xc1        => DataItem::NotSupported,      //epoch-based date/time (data item follows; see Section 3.4.2),
+        0xc2        => DataItem::UnsignedBigNum,      //unsigned bignum (data item "byte string" follows),
+        0xc3        => DataItem::NegativeBigNum,      //negative bignum (data item "byte string" follows),
+        0xc4        => DataItem::NotSupported,      //decimal Fraction (data item "array" follows; see Section 3.4.4),
+        0xc5        => DataItem::NotSupported,      //bigfloat (data item "array" follows; see Section 3.4.4),
+        0xc6..0xd5  => DataItem::Tag(byte),      //(tag),
+        0xd5..0xd8  => DataItem::NotSupported,      //expected conversion (data item follows; see Section 3.4.5.2),
+        0xd8..0xdb  => DataItem::NotSupported,      //(more tags; 1/2/4/8 bytes of tag number and then a data item follow),
+        0xe0..0xf4  => DataItem::NotSupported,      //(simple value),
+        0xf4        => DataItem::Bool(false),      //false,
+        0xf5        => DataItem::Bool(true),      //true,
+        0xf6        => DataItem::Null,      //null,
+        0xf7        => DataItem::Undefined,      //undefine,
+        0xf8        => DataItem::NotSupported,      //(simple value, one byte follows),
+        0xf9        => DataItem::Float2,      //half-precision float (two-byte IEEE 754),
+        0xfa        => DataItem::Float4,      //single-precision float (four-byte IEEE 754),
+        0xfb        => DataItem::Float8,      //double-precision float (eight-byte IEEE 754),
+        0xff        => DataItem::Stop,      //"break" stop code,
+        _           => DataItem::InvalidByte,
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vec_u8_from_cbor() {
+        let v: Vec<u8> = vec![1,2,3,4,5,6,7,8,9];
+        let bytes = v.to_cbor_bytes();
+        println!("bytes: {:x?}", bytes);
+        let z = <Vec<u8> as Cbor>::from_cbor_bytes(&bytes).unwrap();
+        assert_eq!(v, z);
+
+    }
+}
