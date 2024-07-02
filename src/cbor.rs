@@ -116,7 +116,11 @@ impl Cbor for u8 {
 
 impl Cbor for u16 {
     fn to_cbor_bytes(&self) -> Vec<u8> {
-        vec![0x19, self.to_be_bytes()[0], self.to_be_bytes()[1]]
+        vec![
+            0x19,
+            self.to_be_bytes()[0],
+            self.to_be_bytes()[1]
+        ]
     }
 
     fn from_cbor_bytes(bytes: &[u8]) -> Result<Self, CborError>
@@ -125,6 +129,54 @@ impl Cbor for u16 {
     {
         match expected_data_item(bytes[0]) {
             DataItem::Uint2 => Ok(u16::from_be_bytes([bytes[1], bytes[2]])),
+            _ => return Err(CborError::Unexpected)
+        }
+    }
+}
+
+impl Cbor for u32 {
+    fn to_cbor_bytes(&self) -> Vec<u8> {
+        vec![
+            0x1a,
+            self.to_be_bytes()[0],
+            self.to_be_bytes()[1],
+            self.to_be_bytes()[2],
+            self.to_be_bytes()[3]
+        ]
+    }
+
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<Self, CborError>
+        where 
+            Self: Sized 
+    {
+        match expected_data_item(bytes[0]) {
+            DataItem::Uint4 => Ok(u32::from_be_bytes([bytes[1], bytes[2], bytes[3], bytes[4]])),
+            _ => return Err(CborError::Unexpected)
+        }
+    }
+}
+
+impl Cbor for u64 {
+    fn to_cbor_bytes(&self) -> Vec<u8> {
+        vec![
+            0x1b,
+            self.to_be_bytes()[0],
+            self.to_be_bytes()[1],
+            self.to_be_bytes()[2],
+            self.to_be_bytes()[3],
+            self.to_be_bytes()[4],
+            self.to_be_bytes()[5],
+            self.to_be_bytes()[6],
+            self.to_be_bytes()[7]
+        ]
+    }
+
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<Self, CborError>
+        where 
+            Self: Sized 
+    {
+        match expected_data_item(bytes[0]) {
+            DataItem::Uint4 => Ok(u64::from_be_bytes([bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8]])),
             _ => return Err(CborError::Unexpected)
         }
     }
