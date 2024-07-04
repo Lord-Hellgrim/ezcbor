@@ -1,4 +1,4 @@
-use std::mem;
+use std::{collections::HashMap, mem};
 
 
 pub enum DataItem {
@@ -71,57 +71,6 @@ pub trait Cbor {
             Self: Sized;
 }
 
-
-
-impl<T> Cbor for Vec<T> where T: Cbor {
-    fn to_cbor_bytes(&self) -> Vec<u8> {
-        let mut v = Vec::new();
-        if self.len() < 24 {
-            v.push(0x80 + self.len() as u8);
-        } else {
-            v.push(0x9b);
-            v.extend_from_slice(&self.len().to_be_bytes());
-        }
-        for item in self {
-            v.extend_from_slice(&item.to_cbor_bytes());
-        }
-        v
-    }
-
-    fn from_cbor_bytes(bytes: &[u8]) -> Result<(Self, usize), CborError>
-        where 
-            Self: Sized 
-    {
-        println!("bytes: {:x?}", bytes);
-        let mut v = Vec::new();
-        let mut i = 0;
-        match expected_data_item(bytes[0]) {
-            DataItem::SmallArray(byte) => {
-                i += 1;
-                let mut count = 0;
-                while count < byte {
-                    let (t, bytes_read) = <T as Cbor>::from_cbor_bytes(&bytes[i..])?;
-                    v.push(t);
-                    i += bytes_read;
-                    count += 1;
-                }
-            }
-            DataItem::Array8 => {
-                let data_len = u64::from_be_bytes([bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8]]) as usize;
-                i += 1;
-                let mut count = 0;
-                while count < data_len {
-                    let (t, bytes_read) = <T as Cbor>::from_cbor_bytes(&bytes[i..])?;
-                    v.push(t);
-                    i += bytes_read;
-                    count += 1;
-                }
-            },
-            _ => return Err(CborError::Unexpected)
-        }
-        Ok((v, i))
-    }
-}
 
 pub struct Bytes{
     bytes: Vec<u8>,
@@ -541,11 +490,71 @@ impl Cbor for String {
 }
 
 
+impl<T> Cbor for Vec<T> where T: Cbor {
+    fn to_cbor_bytes(&self) -> Vec<u8> {
+        let mut v = Vec::new();
+        if self.len() < 24 {
+            v.push(0x80 + self.len() as u8);
+        } else {
+            v.push(0x9b);
+            v.extend_from_slice(&self.len().to_be_bytes());
+        }
+        for item in self {
+            v.extend_from_slice(&item.to_cbor_bytes());
+        }
+        v
+    }
+
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<(Self, usize), CborError>
+        where 
+            Self: Sized 
+    {
+        let mut v = Vec::new();
+        let mut i = 0;
+        match expected_data_item(bytes[0]) {
+            DataItem::SmallArray(byte) => {
+                i += 1;
+                let mut count = 0;
+                while count < byte {
+                    let (t, bytes_read) = <T as Cbor>::from_cbor_bytes(&bytes[i..])?;
+                    v.push(t);
+                    i += bytes_read;
+                    count += 1;
+                }
+            }
+            DataItem::Array8 => {
+                let data_len = u64::from_be_bytes([bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8]]) as usize;
+                i += 9;
+                let mut count = 0;
+                while count < data_len {
+                    let (t, bytes_read) = <T as Cbor>::from_cbor_bytes(&bytes[i..])?;
+                    v.push(t);
+                    i += bytes_read;
+                    count += 1;
+                }
+            },
+            _ => return Err(CborError::Unexpected)
+        }
+        Ok((v, i))
+    }
+}
+
+impl<K, V> Cbor for HashMap<K, V> where K: Cbor, V: Cbor {
+    fn to_cbor_bytes(&self) -> Vec<u8> {
+        todo!()
+    }
+
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<(Self, usize), CborError>
+        where 
+            Self: Sized {
+        todo!()
+    }
+}
+
 
 
 #[inline]
 fn expected_data_item(byte: u8) -> DataItem {
-    println!("byte: {}", byte);
     match byte {
         0x00..0x18  => DataItem::SmallInt(byte),                    //unsigned integer 0x00..0x17 (0..23),
         0x18        => DataItem::Uint1,                           //unsigned integer (one-byte uint8_t follows),
@@ -632,7 +641,7 @@ mod tests {
 
     #[test]
     fn test_array() {
-        let array = vec![1,2,3,4,5,6,7,8,9];
+        let array = vec![1,2,3,4,5,6,7,8,9,1,2,3,4,5,6,7,8,9,1,2,3,4,5,6,7,8,9,];
         let encoded_array = array.to_cbor_bytes();
         let decoded_array = decode_cbor::<Vec<i32>>(&encoded_array).unwrap();
         println!("decoded: {:?}", decoded_array);

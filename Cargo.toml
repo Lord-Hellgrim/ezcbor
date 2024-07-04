@@ -7,3 +7,12 @@ description = "Easy little cbor library"
 homepage = "https://github.com/lord-hellgrim/ezcbor"
 repository = "https://github.com/lord-hellgrim/ezcbor"
 readme = "README.md"
+
+[dev-dependencies]
+criterion = "0.5.1"
+rand = "0.8.5"
+
+[[bench]]
+name = "my_benchmark"
+harness = false
+
