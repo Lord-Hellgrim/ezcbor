@@ -1,4 +1,4 @@
-use std::{collections::HashMap, mem};
+use std::{collections::HashMap, hash::Hash, mem};
 
 
 pub enum DataItem {
@@ -539,15 +539,63 @@ impl<T> Cbor for Vec<T> where T: Cbor {
     }
 }
 
-impl<K, V> Cbor for HashMap<K, V> where K: Cbor, V: Cbor {
+impl<K, V> Cbor for HashMap<K, V> 
+where 
+    K: Cbor + Hash + Eq,
+    V: Cbor 
+{
     fn to_cbor_bytes(&self) -> Vec<u8> {
-        todo!()
+        let mut bytes = Vec::new();
+        if self.len() < 24 {
+            bytes.push(0xa0 + self.len() as u8);
+            for (key, value) in self {
+                bytes.extend_from_slice(&key.to_cbor_bytes());
+                bytes.extend_from_slice(&value.to_cbor_bytes());
+            }
+        } else {
+            bytes.push(0xbb);
+            bytes.push(&self.len().to_be_bytes());
+            for (key, value) in self {
+                bytes.extend_from_slice(&key.to_cbor_bytes());
+                bytes.extend_from_slice(&value.to_cbor_bytes());
+            }
+        }
+        bytes
     }
 
     fn from_cbor_bytes(bytes: &[u8]) -> Result<(Self, usize), CborError>
         where 
-            Self: Sized {
-        todo!()
+            Self: Sized 
+    {
+        let mut map = HashMap::new();
+        let mut i = 0;
+        match expected_data_item(bytes[0]) {
+            DataItem::SmallMap(byte) => {
+                i += 1;
+                let mut count = 0;
+                while count < byte {
+                    let (key, key_bytes_read) = <K as Cbor>::from_cbor_bytes(&bytes[i..])?;
+                    let (value, value_bytes_read) = <K as Cbor>::from_cbor_bytes(&bytes[i+key_bytes_read..])?;
+                    map.insert(key, value);
+                    i += key_bytes_read + value_bytes_read;
+                    count += 1;
+                }
+            }
+            DataItem::Array8 => {
+                let data_len = u64::from_be_bytes([bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8]]) as usize;
+                i += 9;
+                let mut count = 0;
+                while count < data_len {
+                    let (key, key_bytes_read) = <K as Cbor>::from_cbor_bytes(&bytes[i..])?;
+                    let (value, value_bytes_read) = <V as Cbor>::from_cbor_bytes(&bytes[i+key_bytes_read..])?;
+                    map.insert(key, value);
+                    i += key_bytes_read + value_bytes_read;
+                    count += 1;
+                }
+            },
+            _ => return Err(CborError::Unexpected)
+        }
+        Ok((map, i))
     }
 }
 
@@ -651,5 +699,16 @@ mod tests {
         let decoded_array = decode_cbor::<Vec<Vec<Vec<i32>>>>(&encoded_array).unwrap();
         println!("decoded: {:?}", decoded_array);
         assert_eq!(arrarray, decoded_array);
+    }
+
+    #[test]
+    fn test_map() {
+        let mut map = HashMap::new();
+        for i in 0..30 {
+            map.insert(i, format!("value number {}", i));
+        }
+        let bytes = map.to_cbor_bytes();
+        let decoded_map: HashMap<i32, String> = decode_cbor(&bytes).unwrap();
+        assert_eq!(map, decoded_map);
     }
 }
