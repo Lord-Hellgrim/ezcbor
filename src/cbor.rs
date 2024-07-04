@@ -1,4 +1,4 @@
-use std::{collections::HashMap, hash::Hash, mem};
+use std::{collections::{BTreeMap, HashMap}, hash::Hash, mem};
 
 
 pub enum DataItem {
@@ -554,7 +554,7 @@ where
             }
         } else {
             bytes.push(0xbb);
-            bytes.push(&self.len().to_be_bytes());
+            bytes.extend_from_slice(&self.len().to_be_bytes());
             for (key, value) in self {
                 bytes.extend_from_slice(&key.to_cbor_bytes());
                 bytes.extend_from_slice(&value.to_cbor_bytes());
@@ -567,6 +567,7 @@ where
         where 
             Self: Sized 
     {
+        println!("bytes: {:x?}", bytes);
         let mut map = HashMap::new();
         let mut i = 0;
         match expected_data_item(bytes[0]) {
@@ -575,13 +576,75 @@ where
                 let mut count = 0;
                 while count < byte {
                     let (key, key_bytes_read) = <K as Cbor>::from_cbor_bytes(&bytes[i..])?;
-                    let (value, value_bytes_read) = <K as Cbor>::from_cbor_bytes(&bytes[i+key_bytes_read..])?;
+                    let (value, value_bytes_read) = <V as Cbor>::from_cbor_bytes(&bytes[i+key_bytes_read..])?;
                     map.insert(key, value);
                     i += key_bytes_read + value_bytes_read;
                     count += 1;
                 }
             }
-            DataItem::Array8 => {
+            DataItem::Map8 => {
+                let data_len = u64::from_be_bytes([bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8]]) as usize;
+                i += 9;
+                let mut count = 0;
+                while count < data_len {
+                    let (key, key_bytes_read) = <K as Cbor>::from_cbor_bytes(&bytes[i..])?;
+                    let (value, value_bytes_read) = <V as Cbor>::from_cbor_bytes(&bytes[i+key_bytes_read..])?;
+                    map.insert(key, value);
+                    i += key_bytes_read + value_bytes_read;
+                    count += 1;
+                }
+            },
+            _ => return Err(CborError::Unexpected)
+        }
+        Ok((map, i))
+    }
+}
+
+
+impl<K, V> Cbor for BTreeMap<K, V> 
+where 
+    K: Cbor + Hash + Eq + Ord,
+    V: Cbor 
+{
+    fn to_cbor_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        if self.len() < 24 {
+            bytes.push(0xa0 + self.len() as u8);
+            for (key, value) in self {
+                bytes.extend_from_slice(&key.to_cbor_bytes());
+                bytes.extend_from_slice(&value.to_cbor_bytes());
+            }
+        } else {
+            bytes.push(0xbb);
+            bytes.extend_from_slice(&self.len().to_be_bytes());
+            for (key, value) in self {
+                bytes.extend_from_slice(&key.to_cbor_bytes());
+                bytes.extend_from_slice(&value.to_cbor_bytes());
+            }
+        }
+        bytes
+    }
+
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<(Self, usize), CborError>
+        where 
+            Self: Sized 
+    {
+        println!("bytes: {:x?}", bytes);
+        let mut map = BTreeMap::new();
+        let mut i = 0;
+        match expected_data_item(bytes[0]) {
+            DataItem::SmallMap(byte) => {
+                i += 1;
+                let mut count = 0;
+                while count < byte {
+                    let (key, key_bytes_read) = <K as Cbor>::from_cbor_bytes(&bytes[i..])?;
+                    let (value, value_bytes_read) = <V as Cbor>::from_cbor_bytes(&bytes[i+key_bytes_read..])?;
+                    map.insert(key, value);
+                    i += key_bytes_read + value_bytes_read;
+                    count += 1;
+                }
+            }
+            DataItem::Map8 => {
                 let data_len = u64::from_be_bytes([bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8]]) as usize;
                 i += 9;
                 let mut count = 0;
@@ -603,6 +666,7 @@ where
 
 #[inline]
 fn expected_data_item(byte: u8) -> DataItem {
+    println!("byte: {:x}", byte);
     match byte {
         0x00..0x18  => DataItem::SmallInt(byte),                    //unsigned integer 0x00..0x17 (0..23),
         0x18        => DataItem::Uint1,                           //unsigned integer (one-byte uint8_t follows),
@@ -702,13 +766,24 @@ mod tests {
     }
 
     #[test]
-    fn test_map() {
+    fn test_hashmap() {
         let mut map = HashMap::new();
         for i in 0..30 {
             map.insert(i, format!("value number {}", i));
         }
         let bytes = map.to_cbor_bytes();
         let decoded_map: HashMap<i32, String> = decode_cbor(&bytes).unwrap();
+        assert_eq!(map, decoded_map);
+    }
+
+    #[test]
+    fn test_btreemap() {
+        let mut map = BTreeMap::new();
+        for i in 0..30 {
+            map.insert(i, format!("value number {}", i));
+        }
+        let bytes = map.to_cbor_bytes();
+        let decoded_map: BTreeMap<i32, String> = decode_cbor(&bytes).unwrap();
         assert_eq!(map, decoded_map);
     }
 }
