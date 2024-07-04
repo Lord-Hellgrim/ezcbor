@@ -1,3 +1,5 @@
+use std::mem;
+
 
 pub enum DataItem {
     SmallInt(u8),
@@ -49,6 +51,12 @@ pub enum DataItem {
     InvalidByte,
 }
 
+#[inline]
+pub fn decode_cbor<T>(bytes: &[u8]) -> Result<T, CborError> where T: Cbor {
+    let (t, _) = <T as Cbor>::from_cbor_bytes(bytes)?;
+    Ok(t)
+}
+
 #[derive(Debug)]
 pub enum CborError {
     IllFormed,
@@ -58,34 +66,101 @@ pub enum CborError {
 pub trait Cbor {
     fn to_cbor_bytes(&self) -> Vec<u8>;
 
-    fn from_cbor_bytes(bytes: &[u8]) -> Result<Self, CborError>
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<(Self, usize), CborError>
         where 
             Self: Sized;
 }
 
-impl Cbor for Vec<u8> {
+
+
+impl<T> Cbor for Vec<T> where T: Cbor {
     fn to_cbor_bytes(&self) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        bytes.push(0x5b);
-        bytes.extend_from_slice(&self.len().to_be_bytes());
-        bytes.extend_from_slice(self);
-        bytes
+        let mut v = Vec::new();
+        if self.len() < 24 {
+            v.push(0x80 + self.len() as u8);
+        } else {
+            v.push(0x9b);
+            v.extend_from_slice(&self.len().to_be_bytes());
+        }
+        for item in self {
+            v.extend_from_slice(&item.to_cbor_bytes());
+        }
+        v
     }
 
-    fn from_cbor_bytes(bytes: &[u8]) -> Result<Self, CborError>
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<(Self, usize), CborError>
+        where 
+            Self: Sized 
+    {
+        println!("bytes: {:x?}", bytes);
+        let mut v = Vec::new();
+        let mut i = 0;
+        match expected_data_item(bytes[0]) {
+            DataItem::SmallArray(byte) => {
+                i += 1;
+                let mut count = 0;
+                while count < byte {
+                    let (t, bytes_read) = <T as Cbor>::from_cbor_bytes(&bytes[i..])?;
+                    v.push(t);
+                    i += bytes_read;
+                    count += 1;
+                }
+            }
+            DataItem::Array8 => {
+                let data_len = u64::from_be_bytes([bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8]]) as usize;
+                i += 1;
+                let mut count = 0;
+                while count < data_len {
+                    let (t, bytes_read) = <T as Cbor>::from_cbor_bytes(&bytes[i..])?;
+                    v.push(t);
+                    i += bytes_read;
+                    count += 1;
+                }
+            },
+            _ => return Err(CborError::Unexpected)
+        }
+        Ok((v, i))
+    }
+}
+
+pub struct Bytes{
+    bytes: Vec<u8>,
+}
+
+impl Cbor for Bytes {
+    fn to_cbor_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        if self.bytes.len() < 24 {
+            bytes.push(0x40 + self.bytes.len() as u8);
+            bytes.extend_from_slice(&self.bytes);
+            bytes
+        } else {
+            bytes.push(0x5b);
+            bytes.extend_from_slice(&self.bytes.len().to_be_bytes());
+            bytes.extend_from_slice(&self.bytes);
+            bytes
+        }
+    }
+
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<(Self, usize), CborError>
     where 
         Self: Sized 
     {
         let mut v = Vec::new();
+        let bytes_read;
         match expected_data_item(bytes[0]) {
+            DataItem::SmallByteString(byte) => {
+                v.extend_from_slice(&bytes[1..1+byte as usize]);
+                bytes_read = byte+1;
+            }
             DataItem::ByteString8 => {
                 let data_len = u64::from_be_bytes([bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8]]) as usize;
-                println!("data_len: {}", data_len);
                 v.extend_from_slice(&bytes[9..9+data_len]);
+                bytes_read = 9+data_len;
             },
             _ => return Err(CborError::Unexpected)
         };
-        Ok(v)
+        Ok((Bytes{bytes: v}, bytes_read))
     }
 }
 
@@ -102,13 +177,13 @@ impl Cbor for u8 {
         bytes
     }
 
-    fn from_cbor_bytes(bytes: &[u8]) -> Result<Self, CborError>
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<(Self, usize), CborError>
         where 
             Self: Sized 
     {
         match expected_data_item(bytes[0]) {
-            DataItem::SmallInt(byte) => Ok(byte),
-            DataItem::Uint1 => Ok(bytes[1]),
+            DataItem::SmallInt(byte) => Ok((byte, 1)),
+            DataItem::Uint1 => Ok((bytes[1], 2)),
             _ => return Err(CborError::Unexpected)
         }
     }
@@ -123,15 +198,18 @@ impl Cbor for u16 {
         ]
     }
 
-    fn from_cbor_bytes(bytes: &[u8]) -> Result<Self, CborError>
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<(Self, usize), CborError>
         where 
             Self: Sized 
     {
         match expected_data_item(bytes[0]) {
-            DataItem::Uint2 => Ok(u16::from_be_bytes([
-                bytes[1],
-                bytes[2]
-            ])),
+            DataItem::Uint2 => Ok((
+                u16::from_be_bytes([
+                    bytes[1],
+                    bytes[2]
+                ]),
+                3
+            )),
             _ => return Err(CborError::Unexpected)
         }
     }
@@ -148,17 +226,21 @@ impl Cbor for u32 {
         ]
     }
 
-    fn from_cbor_bytes(bytes: &[u8]) -> Result<Self, CborError>
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<(Self, usize), CborError>
         where 
             Self: Sized 
     {
         match expected_data_item(bytes[0]) {
-            DataItem::Uint4 => Ok(u32::from_be_bytes([
-                bytes[1],
-                bytes[2],
-                bytes[3],
-                bytes[4]
-            ])),
+            DataItem::Uint4 => Ok(
+                (u32::from_be_bytes([
+                    bytes[1],
+                    bytes[2],
+                    bytes[3],
+                    bytes[4]
+                ]), 
+                5
+            )
+            ),
             _ => return Err(CborError::Unexpected)
         }
     }
@@ -179,12 +261,12 @@ impl Cbor for u64 {
         ]
     }
 
-    fn from_cbor_bytes(bytes: &[u8]) -> Result<Self, CborError>
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<(Self, usize), CborError>
         where 
             Self: Sized 
     {
         match expected_data_item(bytes[0]) {
-            DataItem::Uint4 => Ok(u64::from_be_bytes([
+            DataItem::Uint4 => Ok((u64::from_be_bytes([
                 bytes[1],
                 bytes[2],
                 bytes[3],
@@ -193,7 +275,8 @@ impl Cbor for u64 {
                 bytes[6],
                 bytes[7],
                 bytes[8]
-            ])),
+            ]), 
+            9)),
             _ => return Err(CborError::Unexpected)
         }
     }
@@ -216,15 +299,15 @@ impl Cbor for i8 {
         bytes
     }
 
-    fn from_cbor_bytes(bytes: &[u8]) -> Result<Self, CborError>
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<(Self, usize), CborError>
         where 
             Self: Sized 
     {
         match expected_data_item(bytes[0]) {
-            DataItem::SmallNegInt(byte) => Ok(byte),
-            DataItem::NegUint1 => Ok(i8::from_be_bytes([
+            DataItem::SmallNegInt(byte) => Ok((byte, 1)),
+            DataItem::NegUint1 => Ok((i8::from_be_bytes([
                 bytes[1]
-            ])),
+            ]), 2)),
             _ => return Err(CborError::Unexpected)
         }
     }
@@ -244,16 +327,19 @@ impl Cbor for i16 {
         }
     }
 
-    fn from_cbor_bytes(bytes: &[u8]) -> Result<Self, CborError>
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<(Self, usize), CborError>
         where 
             Self: Sized 
     {
         match expected_data_item(bytes[0]) {
-            DataItem::Uint2 => Ok(<u16 as Cbor>::from_cbor_bytes(bytes)? as i16),
-            DataItem::NegUint2 => Ok(i16::from_be_bytes([
+            DataItem::Uint2 => {
+                let (num, bytes_read) = <u16 as Cbor>::from_cbor_bytes(bytes)?;
+                Ok((num as i16, bytes_read))
+            },
+            DataItem::NegUint2 => Ok((i16::from_be_bytes([
                 bytes[1], 
                 bytes[2]
-            ])),
+            ]), 3)),
             _ => return Err(CborError::Unexpected)
         }
     }
@@ -275,18 +361,21 @@ impl Cbor for i32 {
         }
     }
 
-    fn from_cbor_bytes(bytes: &[u8]) -> Result<Self, CborError>
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<(Self, usize), CborError>
         where 
             Self: Sized 
     {
         match expected_data_item(bytes[0]) {
-            DataItem::Uint4 => Ok(<u32 as Cbor>::from_cbor_bytes(bytes)? as i32),
-            DataItem::NegUint4 => Ok(i32::from_be_bytes([
+            DataItem::Uint4 => {
+                let (num, bytes_read) = <u32 as Cbor>::from_cbor_bytes(bytes)?;
+                Ok((num as i32, bytes_read))
+            },
+            DataItem::NegUint4 => Ok((i32::from_be_bytes([
                 bytes[1], 
                 bytes[2],
                 bytes[3],
                 bytes[4],
-            ])),
+            ]), 5)),
             _ => return Err(CborError::Unexpected)
         }
     }
@@ -312,13 +401,16 @@ impl Cbor for i64 {
         }
     }
 
-    fn from_cbor_bytes(bytes: &[u8]) -> Result<Self, CborError>
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<(Self, usize), CborError>
         where 
             Self: Sized 
     {
         match expected_data_item(bytes[0]) {
-            DataItem::Uint4 => Ok(<u64 as Cbor>::from_cbor_bytes(bytes)? as i64),
-            DataItem::NegUint4 => Ok(i64::from_be_bytes([
+            DataItem::Uint4 => {
+                let (num, bytes_read) = <u64 as Cbor>::from_cbor_bytes(bytes)?;
+                Ok((num as i64, bytes_read))
+            },
+            DataItem::NegUint4 => Ok((i64::from_be_bytes([
                 bytes[1], 
                 bytes[2],
                 bytes[3],
@@ -327,11 +419,128 @@ impl Cbor for i64 {
                 bytes[6],
                 bytes[7],
                 bytes[8],
-            ])),
+            ]), 9)),
             _ => return Err(CborError::Unexpected)
         }
     }
 }
+
+impl Cbor for f32 {
+    fn to_cbor_bytes(&self) -> Vec<u8> {
+        vec![
+            0xfa,
+            self.to_be_bytes()[0],
+            self.to_be_bytes()[1],
+            self.to_be_bytes()[2],
+            self.to_be_bytes()[3]
+        ]
+    }
+
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<(Self, usize), CborError>
+        where 
+            Self: Sized 
+    {
+        match expected_data_item(bytes[0]) {
+            DataItem::Float4 => Ok((f32::from_be_bytes([
+                bytes[1],
+                bytes[2],
+                bytes[3],
+                bytes[4]
+            ]), 5)),
+            _ => return Err(CborError::Unexpected)
+        }
+    }
+}
+
+impl Cbor for f64 {
+    fn to_cbor_bytes(&self) -> Vec<u8> {
+        vec![
+            0xfb,
+            self.to_be_bytes()[0],
+            self.to_be_bytes()[1],
+            self.to_be_bytes()[2],
+            self.to_be_bytes()[3],
+            self.to_be_bytes()[4],
+            self.to_be_bytes()[5],
+            self.to_be_bytes()[6],
+            self.to_be_bytes()[7]
+        ]
+    }
+
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<(Self, usize), CborError>
+        where 
+            Self: Sized 
+    {
+        match expected_data_item(bytes[0]) {
+            DataItem::Uint4 => Ok((f64::from_be_bytes([
+                bytes[1],
+                bytes[2],
+                bytes[3],
+                bytes[4],
+                bytes[5],
+                bytes[6],
+                bytes[7],
+                bytes[8]
+            ]), 9)),
+            _ => return Err(CborError::Unexpected)
+        }
+    }
+}
+
+impl Cbor for String {
+    fn to_cbor_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        if self.len() < 24 {
+            bytes.push(0x60+self.len() as u8);
+            bytes.extend_from_slice(&self.as_bytes());
+        } else {
+            bytes.push(0x7b);
+            bytes.extend_from_slice(&self.len().to_be_bytes());
+            bytes.extend_from_slice(self.as_bytes());
+        }
+        bytes
+    }
+
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<(Self, usize), CborError>
+        where 
+            Self: Sized 
+    {
+        let mut v = String::new();
+        let bytes_read;
+        match expected_data_item(bytes[0]) {
+            DataItem::SmallTextString(byte) => {
+                let encoded_text = match std::str::from_utf8(&bytes[1..1+byte as usize]) {
+                    Ok(text) => text,
+                    Err(_) => return Err(CborError::IllFormed),
+                };
+                v.push_str(encoded_text);
+                bytes_read = v.len() + 1;
+            }
+            DataItem::TextString8 => {
+                let data_len = u64::from_be_bytes([
+                    bytes[1],
+                    bytes[2],
+                    bytes[3],
+                    bytes[4],
+                    bytes[5],
+                    bytes[6],
+                    bytes[7],
+                    bytes[8]
+                    ]) as usize;
+                let encoded_text = match std::str::from_utf8(&bytes[9..9+data_len]) {
+                    Ok(text) => text,
+                    Err(_) => return Err(CborError::IllFormed),
+                };
+                v.push_str(encoded_text);
+                bytes_read = v.len() + 9;
+            },
+            _ => return Err(CborError::Unexpected)
+        };
+        Ok((v, bytes_read))
+    }
+}
+
+
 
 
 #[inline]
@@ -354,19 +563,19 @@ fn expected_data_item(byte: u8) -> DataItem {
         0x5a        => DataItem::ByteString4,      //byte string (four-byte uint32_t for n, and then n bytes follow),
         0x5b        => DataItem::ByteString8,      //byte string (eight-byte uint64_t for n, and then n bytes follow),
         0x5f        => DataItem::TerminatedByteString,      //byte string, byte strings follow, terminated by "break",
-        0x60..0x78  => DataItem::SmallTextString(byte as usize-0x40),      //UTF-8 string (0x00..0x17 bytes follow),
+        0x60..0x78  => DataItem::SmallTextString(byte as usize-0x60),      //UTF-8 string (0x00..0x17 bytes follow),
         0x78        => DataItem::TextString1,      //UTF-8 string (one-byte uint8_t for n, and then n bytes follow),
         0x79        => DataItem::TextString2,      //UTF-8 string (two-byte uint16_t for n, and then n bytes follow),
         0x7a        => DataItem::TextString4,      //UTF-8 string (four-byte uint32_t for n, and then n bytes follow),
         0x7b        => DataItem::TextString8,      //UTF-8 string (eight-byte uint64_t for n, and then n bytes follow),
         0x7f        => DataItem::TerminatedTextString,      //UTF-8 string, UTF-8 strings follow, terminated by "break",
-        0x80..0x98  => DataItem::SmallArray(byte as usize - 0x40),      //array (0x00..0x17 data items follow),
+        0x80..0x98  => DataItem::SmallArray(byte as usize - 0x80),      //array (0x00..0x17 data items follow),
         0x98        => DataItem::Array1,      //array (one-byte uint8_t for n, and then n data  items follow),
         0x99        => DataItem::Array2,      //array (two-byte uint16_t for n, and then n data items follow),
         0x9a        => DataItem::Array4,      //array (four-byte uint32_t for n, and then n data items follow),
         0x9b        => DataItem::Array8,      //array (eight-byte uint64_t for n, and then n data items follow),
         0x9f        => DataItem::TerminatedArray,      //array, data items follow, terminated by "break",
-        0xa0..0xb8  => DataItem::SmallMap(byte as usize - 0x40),      //map (0x00..0x17 pairs of data items follow),
+        0xa0..0xb8  => DataItem::SmallMap(byte as usize - 0xa0),      //map (0x00..0x17 pairs of data items follow),
         0xb8        => DataItem::Map1,      //map (one-byte uint8_t for n, and then n pairs of data items follow),
         0xb9        => DataItem::Map2,      //map (two-byte uint16_t for n, and then n pairs of data items follow),
         0xba        => DataItem::Map4,      //map (four-byte uint32_t for n, and then n pairs of data items follow),
@@ -405,8 +614,33 @@ mod tests {
         let v: Vec<u8> = vec![1,2,3,4,5,6,7,8,9];
         let bytes = v.to_cbor_bytes();
         println!("bytes: {:x?}", bytes);
-        let z = <Vec<u8> as Cbor>::from_cbor_bytes(&bytes).unwrap();
+        let (z, _) = <Vec<u8> as Cbor>::from_cbor_bytes(&bytes).unwrap();
         assert_eq!(v, z);
+    }
 
+    #[test]
+    fn test_str() {
+        let str = "here is a str".to_owned();
+        let long_str = "here is a string that is longer than 23 characters. Here are a couple extra words to make sure".to_owned();
+        let encoded_str = str.to_cbor_bytes();
+        let encoded_long_str = long_str.to_cbor_bytes();
+        let (decoded_str, _) = <String as Cbor>::from_cbor_bytes(&encoded_str).unwrap();
+        let (decoded_long_str, _) = <String as Cbor>::from_cbor_bytes(&encoded_long_str).unwrap();
+        assert_eq!(str, decoded_str);
+        assert_eq!(long_str, decoded_long_str);
+    }
+
+    #[test]
+    fn test_array() {
+        let array = vec![1,2,3,4,5,6,7,8,9];
+        let encoded_array = array.to_cbor_bytes();
+        let decoded_array = decode_cbor::<Vec<i32>>(&encoded_array).unwrap();
+        println!("decoded: {:?}", decoded_array);
+        assert_eq!(array, decoded_array);
+        let arrarray = vec![vec![vec![1]],vec![vec![2]],vec![vec![3]],vec![vec![4]],vec![vec![5]],vec![vec![6]],vec![vec![7]],vec![vec![8]],vec![vec![9]]];
+        let encoded_array = arrarray.to_cbor_bytes();
+        let decoded_array = decode_cbor::<Vec<Vec<Vec<i32>>>>(&encoded_array).unwrap();
+        println!("decoded: {:?}", decoded_array);
+        assert_eq!(arrarray, decoded_array);
     }
 }
