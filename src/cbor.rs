@@ -239,7 +239,7 @@ impl Cbor for i8 {
                 0x20..0x38 => bytes.push(*self as u8),
                 _ => {
                     bytes.push(0x38);
-                    bytes.push((-1 -self.abs()).to_be_bytes()[0]);
+                    bytes.push((-self.abs()).to_be_bytes()[0]);
                 },
             };
         } else {
@@ -265,7 +265,7 @@ impl Cbor for i8 {
 impl Cbor for i16 {
     fn to_cbor_bytes(&self) -> Vec<u8> {
         if *self < 0 {
-            let s = -1 - self.abs();
+            let s = - self.abs();
             vec![
                 0x39,
                 s.to_be_bytes()[0],
@@ -297,7 +297,7 @@ impl Cbor for i16 {
 impl Cbor for i32 {
     fn to_cbor_bytes(&self) -> Vec<u8> {
         if *self < 0 {
-            let s = -1 - self.abs();
+            let s = - self.abs();
             vec![
                 0x3a,
                 s.to_be_bytes()[0],
@@ -333,7 +333,7 @@ impl Cbor for i32 {
 impl Cbor for i64 {
     fn to_cbor_bytes(&self) -> Vec<u8> {
         if *self < 0 {
-            let s = -1 - self.abs();
+            let s = - self.abs();
             vec![
                 0x3a,
                 s.to_be_bytes()[0],
@@ -806,7 +806,7 @@ mod tests {
 
     #[test]
     fn test_array() {
-        let array = vec![1,2,3,4,5,6,7,8,9,1,2,3,4,5,6,7,8,9,1,2,3,4,5,6,7,8,9,];
+        let array = vec![1,2,3,4,5,6,7,8,9,1,2,3,4,5,6,7,-8,9,1,2,3,4,5,6,7,8,9,];
         let encoded_array = array.to_cbor_bytes();
         let decoded_array = decode_cbor::<Vec<i32>>(&encoded_array).unwrap();
         println!("decoded: {:?}", decoded_array);
