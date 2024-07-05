@@ -1,4 +1,4 @@
-use std::{collections::{BTreeMap, HashMap}, hash::Hash};
+use std::{any::TypeId, collections::{BTreeMap, HashMap}, hash::Hash};
 
 
 pub enum DataItem {
@@ -71,6 +71,45 @@ pub trait Cbor {
             Self: Sized;
 }
 
+pub trait ToCbor {
+    fn to_cbor_bytes(&self) -> Vec<u8>;
+}
+
+pub struct ByteSlice{
+    pub inner: &[u8],
+}
+
+impl ToCbor for ByteSlice {
+    fn to_cbor_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        if self.bytes.len() < 24 {
+            bytes.push(0x40 + self.inner.len() as u8);
+            bytes.extend_from_slice(&self.inner);
+            bytes
+        } else {
+            bytes.push(0x5b);
+            bytes.extend_from_slice(&self.inner.len().to_be_bytes());
+            bytes.extend_from_slice(&self.inner);
+            bytes
+        }
+    }
+}
+
+impl<T> ToCbor for &[T] where T: Cbor {
+    fn to_cbor_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+            if self.len() < 24 {
+                bytes.push(0x80 + self.len() as u8);
+            } else {
+                bytes.push(0x9b);
+                bytes.extend_from_slice(&self.len().to_be_bytes());
+            }
+            for i in 0..self.len() {
+                bytes.extend_from_slice(&self[i].to_cbor_bytes());
+            }
+        bytes
+    }
+}
 
 pub struct Bytes{
     bytes: Vec<u8>,
@@ -816,6 +855,20 @@ mod tests {
         let decoded_array = decode_cbor::<Vec<Vec<Vec<i32>>>>(&encoded_array).unwrap();
         println!("decoded: {:?}", decoded_array);
         assert_eq!(arrarray, decoded_array);
+    }
+
+    #[test]
+    fn test_slice() {
+        let array = vec![1,2,3,4,5,6,7,8,9,1,2,3,4,5,6,7,-8,9,1,2,3,4,5,6,7,8,9,];
+        let encoded_array = (&array).to_cbor_bytes();
+        let decoded_array = decode_cbor::<Vec<i32>>(&encoded_array).unwrap();
+        println!("decoded: {:?}", decoded_array);
+        assert_eq!(&array, &decoded_array);
+        let arrarray = vec![vec![vec![1]],vec![vec![2]],vec![vec![3]],vec![vec![4]],vec![vec![5]],vec![vec![6]],vec![vec![7]],vec![vec![8]],vec![vec![9]]];
+        let encoded_array = (&arrarray).to_cbor_bytes();
+        let decoded_array = decode_cbor::<Vec<Vec<Vec<i32>>>>(&encoded_array).unwrap();
+        println!("decoded: {:?}", decoded_array);
+        assert_eq!(&arrarray, &decoded_array);
     }
 
     #[test]
