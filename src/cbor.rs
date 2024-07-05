@@ -662,6 +662,59 @@ where
     }
 }
 
+///This is a sample impl for an enum.
+#[derive(PartialEq, PartialOrd, Debug)]
+pub enum Item {
+    Int(i32),
+    Float(f32),
+    String(String),
+}
+
+impl Cbor for Item {
+    fn to_cbor_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        match self {
+            Item::Int(item) => {
+                bytes.push(0xc6);
+                bytes.extend_from_slice(&item.to_cbor_bytes());
+            },
+            Item::Float(item) => {
+                bytes.push(0xc6+1);
+                bytes.extend_from_slice(&item.to_cbor_bytes());
+            },
+            Item::String(item) => {
+                bytes.push(0xc6+2);
+                bytes.extend_from_slice(&item.to_cbor_bytes());
+            },
+        };
+        bytes
+    }
+
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<(Self, usize), CborError>
+        where 
+            Self: Sized 
+    {
+        match expected_data_item(bytes[0]) {
+            DataItem::Tag(byte) => match byte {
+                0 => {
+                    let (item, bytes_read) = <i32 as Cbor>::from_cbor_bytes(&bytes[1..])?;
+                    Ok((Self::Int(item), bytes_read))
+                },
+                1 => {
+                    let (item, bytes_read) = <f32 as Cbor>::from_cbor_bytes(&bytes[1..])?;
+                    Ok((Self::Float(item), bytes_read))
+                },
+                2 => {
+                    let (item, bytes_read) = <String as Cbor>::from_cbor_bytes(&bytes[1..])?;
+                    Ok((Self::String(item), bytes_read))
+                },
+                _ => Err(CborError::Unexpected)
+            },
+            _ => Err(CborError::Unexpected)
+        }
+    }
+}
+
 
 
 #[inline]
@@ -708,7 +761,7 @@ fn expected_data_item(byte: u8) -> DataItem {
         0xc3        => DataItem::NegativeBigNum,      //negative bignum (data item "byte string" follows),
         0xc4        => DataItem::NotSupported,      //decimal Fraction (data item "array" follows; see Section 3.4.4),
         0xc5        => DataItem::NotSupported,      //bigfloat (data item "array" follows; see Section 3.4.4),
-        0xc6..0xd5  => DataItem::Tag(byte),      //(tag),
+        0xc6..0xd5  => DataItem::Tag(byte - 0xc6),      //(tag),
         0xd5..0xd8  => DataItem::NotSupported,      //expected conversion (data item follows; see Section 3.4.5.2),
         0xd8..0xdb  => DataItem::NotSupported,      //(more tags; 1/2/4/8 bytes of tag number and then a data item follow),
         0xe0..0xf4  => DataItem::NotSupported,      //(simple value),
@@ -786,4 +839,14 @@ mod tests {
         let decoded_map: BTreeMap<i32, String> = decode_cbor(&bytes).unwrap();
         assert_eq!(map, decoded_map);
     }
+
+    #[test]
+    fn test_enum() {
+        let mut item = Item::Float(5.0);
+        let bytes = item.to_cbor_bytes();
+        let decoded_bytes = decode_cbor(&bytes).unwrap();
+        assert_eq!(item, decoded_bytes);
+    }
+
+
 }
