@@ -75,28 +75,8 @@ pub trait ToCbor {
     fn to_cbor_bytes(&self) -> Vec<u8>;
 }
 
-pub struct ByteSlice{
-    pub inner: &[u8],
-}
-
-impl ToCbor for ByteSlice {
-    fn to_cbor_bytes(&self) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        if self.bytes.len() < 24 {
-            bytes.push(0x40 + self.inner.len() as u8);
-            bytes.extend_from_slice(&self.inner);
-            bytes
-        } else {
-            bytes.push(0x5b);
-            bytes.extend_from_slice(&self.inner.len().to_be_bytes());
-            bytes.extend_from_slice(&self.inner);
-            bytes
-        }
-    }
-}
-
-impl<T> ToCbor for &[T] where T: Cbor {
-    fn to_cbor_bytes(&self) -> Vec<u8> {
+impl<T> ToCbor for &[T] where T: Cbor +  {
+    default fn to_cbor_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
             if self.len() < 24 {
                 bytes.push(0x80 + self.len() as u8);
@@ -111,30 +91,22 @@ impl<T> ToCbor for &[T] where T: Cbor {
     }
 }
 
-pub struct Bytes{
-    bytes: Vec<u8>,
-}
-
-impl Cbor for Bytes {
-    fn to_cbor_bytes(&self) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        if self.bytes.len() < 24 {
-            bytes.push(0x40 + self.bytes.len() as u8);
-            bytes.extend_from_slice(&self.bytes);
+pub fn byteslice_to_cbor(byteslice: &[u8]) -> Vec<u8> {
+    let mut bytes = Vec::new();
+        if byteslice.len() < 24 {
+            bytes.push(0x40 + byteslice.len() as u8);
+            bytes.extend_from_slice(byteslice);
             bytes
         } else {
             bytes.push(0x5b);
-            bytes.extend_from_slice(&self.bytes.len().to_be_bytes());
-            bytes.extend_from_slice(&self.bytes);
+            bytes.extend_from_slice(&byteslice.len().to_be_bytes());
+            bytes.extend_from_slice(byteslice);
             bytes
         }
-    }
+}
 
-    fn from_cbor_bytes(bytes: &[u8]) -> Result<(Self, usize), CborError>
-    where 
-        Self: Sized 
-    {
-        let mut v = Vec::new();
+pub fn byteslice_from_cbor(bytes: &[u8]) -> Result<(Vec<u8>, usize), CborError> {
+    let mut v = Vec::new();
         let bytes_read;
         match expected_data_item(bytes[0]) {
             DataItem::SmallByteString(byte) => {
@@ -148,9 +120,9 @@ impl Cbor for Bytes {
             },
             _ => return Err(CborError::Unexpected)
         };
-        Ok((Bytes{bytes: v}, bytes_read))
-    }
+        Ok((v, bytes_read))
 }
+
 
 impl Cbor for u8 {
     fn to_cbor_bytes(&self) -> Vec<u8> {
@@ -841,6 +813,18 @@ mod tests {
         let (decoded_long_str, _) = <String as Cbor>::from_cbor_bytes(&encoded_long_str).unwrap();
         assert_eq!(str, decoded_str);
         assert_eq!(long_str, decoded_long_str);
+    }
+
+    #[test]
+    fn test_byteslice() {
+        let slice: &[u8] = &[0,1,2,3,4,5,6,7,8,9];
+        let long_slice: &[u8] = &[0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9, ];
+        let encoded_slice = byteslice_to_cbor(slice);
+        let encoded_long_slice = byteslice_to_cbor(long_slice);
+        let (decoded_slice, _) = byteslice_from_cbor(&encoded_slice).unwrap();
+        let (decoded_long_slice, _) = byteslice_from_cbor(&encoded_long_slice).unwrap();
+        assert_eq!(slice, decoded_slice);
+        assert_eq!(long_slice, decoded_long_slice);
     }
 
     #[test]

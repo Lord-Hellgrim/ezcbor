@@ -1,3 +1,5 @@
+#![feature(specialization)]
+
 pub mod cbor;
 
 
