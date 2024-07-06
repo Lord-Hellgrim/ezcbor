@@ -766,7 +766,7 @@ impl Cbor for Item {
 
 
 #[inline]
-fn expected_data_item(byte: u8) -> DataItem {
+pub fn expected_data_item(byte: u8) -> DataItem {
     // println!("byte: {:x}", byte);
     match byte {
         0x00..0x18  => DataItem::SmallInt(byte),                    //unsigned integer 0x00..0x17 (0..23),
