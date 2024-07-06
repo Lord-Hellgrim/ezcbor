@@ -76,7 +76,7 @@ pub trait ToCbor {
 }
 
 impl<T> ToCbor for &[T] where T: Cbor +  {
-    default fn to_cbor_bytes(&self) -> Vec<u8> {
+    fn to_cbor_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
             if self.len() < 24 {
                 bytes.push(0x80 + self.len() as u8);
