@@ -226,7 +226,7 @@ impl Cbor for u64 {
             Self: Sized 
     {
         match expected_data_item(bytes[0]) {
-            DataItem::Uint4 => Ok((u64::from_be_bytes([
+            DataItem::Uint8 => Ok((u64::from_be_bytes([
                 bytes[1],
                 bytes[2],
                 bytes[3],
@@ -236,6 +236,43 @@ impl Cbor for u64 {
                 bytes[7],
                 bytes[8]
             ]), 
+            9)),
+            _ => return Err(CborError::Unexpected)
+        }
+    }
+}
+
+impl Cbor for usize {
+    fn to_cbor_bytes(&self) -> Vec<u8> {
+        let num = *self as u64;
+        vec![
+            0x1b,
+            num.to_be_bytes()[0],
+            num.to_be_bytes()[1],
+            num.to_be_bytes()[2],
+            num.to_be_bytes()[3],
+            num.to_be_bytes()[4],
+            num.to_be_bytes()[5],
+            num.to_be_bytes()[6],
+            num.to_be_bytes()[7]
+        ]
+    }
+
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<(Self, usize), CborError>
+        where 
+            Self: Sized 
+    {
+        match expected_data_item(bytes[0]) {
+            DataItem::Uint8 => Ok((u64::from_be_bytes([
+                bytes[1],
+                bytes[2],
+                bytes[3],
+                bytes[4],
+                bytes[5],
+                bytes[6],
+                bytes[7],
+                bytes[8]
+            ]) as usize, 
             9)),
             _ => return Err(CborError::Unexpected)
         }
@@ -366,7 +403,7 @@ impl Cbor for i64 {
             Self: Sized 
     {
         match expected_data_item(bytes[0]) {
-            DataItem::Uint4 => {
+            DataItem::Uint8 => {
                 let (num, bytes_read) = <u64 as Cbor>::from_cbor_bytes(bytes)?;
                 Ok((num as i64, bytes_read))
             },
@@ -432,7 +469,7 @@ impl Cbor for f64 {
             Self: Sized 
     {
         match expected_data_item(bytes[0]) {
-            DataItem::Uint4 => Ok((f64::from_be_bytes([
+            DataItem::Float8 => Ok((f64::from_be_bytes([
                 bytes[1],
                 bytes[2],
                 bytes[3],
@@ -843,9 +880,9 @@ mod tests {
 
     #[test]
     fn test_slice() {
-        let array = vec![1,2,3,4,5,6,7,8,9,1,2,3,4,5,6,7,-8,9,1,2,3,4,5,6,7,8,9,];
+        let array: Vec<usize> = vec![1,2,3,4,5,6,7,8,9,1,2,3,4,5,6,7,8,9,1,2,3,4,5,6,7,8,9,];
         let encoded_array = (&array).to_cbor_bytes();
-        let decoded_array = decode_cbor::<Vec<i32>>(&encoded_array).unwrap();
+        let decoded_array = decode_cbor::<Vec<usize>>(&encoded_array).unwrap();
         println!("decoded: {:?}", decoded_array);
         assert_eq!(&array, &decoded_array);
         let arrarray = vec![vec![vec![1]],vec![vec![2]],vec![vec![3]],vec![vec![4]],vec![vec![5]],vec![vec![6]],vec![vec![7]],vec![vec![8]],vec![vec![9]]];
