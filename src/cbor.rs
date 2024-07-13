@@ -564,6 +564,7 @@ impl<T> Cbor for Vec<T> where T: Cbor {
                 i += 1;
                 let mut count = 0;
                 while count < byte {
+                    println!("decoding byte: {:x}", bytes[i]);
                     let (t, bytes_read) = <T as Cbor>::from_cbor_bytes(&bytes[i..])?;
                     v.push(t);
                     i += bytes_read;
@@ -767,7 +768,7 @@ impl Cbor for Item {
 
 #[inline]
 pub fn expected_data_item(byte: u8) -> DataItem {
-    println!("decoding byte: {:x}", byte);
+    // println!("decoding byte: {:x}", byte);
     match byte {
         0x00..0x18  => DataItem::SmallInt(byte),                    //unsigned integer 0x00..0x17 (0..23),
         0x18        => DataItem::Uint1,                           //unsigned integer (one-byte uint8_t follows),
