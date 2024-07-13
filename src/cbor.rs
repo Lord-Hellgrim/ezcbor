@@ -767,7 +767,7 @@ impl Cbor for Item {
 
 #[inline]
 pub fn expected_data_item(byte: u8) -> DataItem {
-    println!("byte: {:x}", byte);
+    println!("decoding byte: {:x}", byte);
     match byte {
         0x00..0x18  => DataItem::SmallInt(byte),                    //unsigned integer 0x00..0x17 (0..23),
         0x18        => DataItem::Uint1,                           //unsigned integer (one-byte uint8_t follows),
@@ -862,6 +862,20 @@ mod tests {
         let (decoded_long_slice, _) = byteslice_from_cbor(&encoded_long_slice).unwrap();
         assert_eq!(slice, decoded_slice);
         assert_eq!(long_slice, decoded_long_slice);
+    }
+
+    #[test]
+    fn test_small_array() {
+        let array = vec![1,2,3];
+        let encoded_array = array.to_cbor_bytes();
+        let decoded_array = decode_cbor::<Vec<i32>>(&encoded_array).unwrap();
+        println!("decoded: {:?}", decoded_array);
+        assert_eq!(array, decoded_array);
+        let arrarray = vec![vec![vec![1]],vec![vec![2]],vec![vec![3]]];
+        let encoded_array = arrarray.to_cbor_bytes();
+        let decoded_array = decode_cbor::<Vec<Vec<Vec<i32>>>>(&encoded_array).unwrap();
+        println!("decoded: {:?}", decoded_array);
+        assert_eq!(arrarray, decoded_array);
     }
 
     #[test]
