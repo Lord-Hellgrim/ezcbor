@@ -504,7 +504,6 @@ impl Cbor for String {
     {
         let mut v = String::new();
         let bytes_read;
-        println!("bytes[0]: {:x}", bytes[0]);
         match expected_data_item(bytes[0]) {
             DataItem::SmallTextString(byte) => {
                 let encoded_text = match std::str::from_utf8(&bytes[1..1+byte as usize]) {
@@ -565,7 +564,6 @@ impl<T> Cbor for Vec<T> where T: Cbor {
                 i += 1;
                 let mut count = 0;
                 while count < byte {
-                    println!("decoding byte: {:x}", bytes[i]);
                     let (t, bytes_read) = <T as Cbor>::from_cbor_bytes(&bytes[i..])?;
                     v.push(t);
                     i += bytes_read;
