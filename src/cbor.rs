@@ -124,6 +124,25 @@ pub fn byteslice_from_cbor(bytes: &[u8]) -> Result<(Vec<u8>, usize), CborError> 
 }
 
 
+impl Cbor for bool {
+    fn to_cbor_bytes(&self) -> Vec<u8> {
+        match self {
+            false => vec![0xf4],
+            true => vec![0xf5],
+        }
+    }
+
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<(Self, usize), CborError>
+        where 
+            Self: Sized 
+    {
+        match expected_data_item(bytes[0]) {
+            DataItem::Bool(b) => b,
+            _ => return Err(CborError::Unexpected("Error from bool implementation".to_owned()))
+        }
+    }
+}
+
 impl Cbor for u8 {
     fn to_cbor_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
