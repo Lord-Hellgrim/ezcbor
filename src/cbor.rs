@@ -1,4 +1,4 @@
-use std::{any::type_name, collections::{BTreeMap, HashMap}, hash::Hash};
+use std::{any::type_name, collections::{BTreeMap, HashMap, HashSet}, hash::Hash};
 
 
 pub enum DataItem {
@@ -137,7 +137,7 @@ impl Cbor for bool {
             Self: Sized 
     {
         match expected_data_item(bytes[0]) {
-            DataItem::Bool(b) => b,
+            DataItem::Bool(b) => Ok((b, 1)),
             _ => return Err(CborError::Unexpected("Error from bool implementation".to_owned()))
         }
     }
@@ -606,6 +606,55 @@ impl<T> Cbor for Vec<T> where T: Cbor {
     }
 }
 
+impl<T> Cbor for HashSet<T> where T: Cbor + Hash + Eq {
+    fn to_cbor_bytes(&self) -> Vec<u8> {
+        let mut v = Vec::new();
+        if self.len() < 24 {
+            v.push(0x80 + self.len() as u8);
+        } else {
+            v.push(0x9b);
+            v.extend_from_slice(&self.len().to_be_bytes());
+        }
+        for item in self {
+            v.extend_from_slice(&item.to_cbor_bytes());
+        }
+        v
+    }
+
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<(Self, usize), CborError>
+        where 
+            Self: Sized 
+    {
+        let mut v = HashSet::new();
+        let mut i = 0;
+        match expected_data_item(bytes[0]) {
+            DataItem::SmallArray(byte) => {
+                i += 1;
+                let mut count = 0;
+                while count < byte {
+                    let (t, bytes_read) = <T as Cbor>::from_cbor_bytes(&bytes[i..])?;
+                    v.insert(t);
+                    i += bytes_read;
+                    count += 1;
+                }
+            }
+            DataItem::Array8 => {
+                let data_len = u64::from_be_bytes([bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8]]) as usize;
+                i += 9;
+                let mut count = 0;
+                while count < data_len {
+                    let (t, bytes_read) = <T as Cbor>::from_cbor_bytes(&bytes[i..])?;
+                    v.insert(t);
+                    i += bytes_read;
+                    count += 1;
+                }
+            },
+            _ => return Err(CborError::Unexpected(format!("Error from {} implementation", type_name::<T>())))
+        }
+        Ok((v, i))
+    }
+}
+
 impl<K, V> Cbor for HashMap<K, V> 
 where 
     K: Cbor + Hash + Eq,
@@ -968,6 +1017,35 @@ mod tests {
         println!("bytes: {:x?}", bytes);
         let decoded_map: HashMap<String, Item> = decode_cbor(&bytes).unwrap();
         assert_eq!(map, decoded_map);
+    }
+
+    #[test]
+    fn test_hashset() {
+        let array = vec![1,2,3,4,5,6,7,8,9,11,12,13,14,15,16,17,-18,19,21,22,23,24,25,26,27,28,29,];
+        let mut set = HashSet::new();
+        for item in array {
+            set.insert(item);
+        }
+        let encoded_array = set.to_cbor_bytes();
+        let decoded_array = decode_cbor::<HashSet<i32>>(&encoded_array).unwrap();
+        println!("decoded: {:?}", decoded_array);
+        assert_eq!(set, decoded_array);
+    }
+
+    #[test]
+    fn test_bool() {
+        let t = true;
+        let f = false;
+
+        let cbor_true = t.to_cbor_bytes();
+        let cbor_false = f.to_cbor_bytes();
+
+        let decoded_t: bool = decode_cbor(&cbor_true).unwrap();
+        let decoded_f: bool = decode_cbor(&cbor_false).unwrap();
+
+        assert_eq!(t, decoded_t);
+        assert_eq!(f, decoded_f);
+
     }
 
 }
