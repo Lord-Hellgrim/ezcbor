@@ -1,4 +1,4 @@
-use std::{collections::{BTreeMap, HashMap}, hash::Hash};
+use std::{any::type_name, collections::{BTreeMap, HashMap}, hash::Hash};
 
 
 pub enum DataItem {
@@ -59,8 +59,8 @@ pub fn decode_cbor<T>(bytes: &[u8]) -> Result<T, CborError> where T: Cbor {
 
 #[derive(Debug)]
 pub enum CborError {
-    IllFormed,
-    Unexpected,
+    IllFormed(String),
+    Unexpected(String),
 }
 
 pub trait Cbor {
@@ -118,7 +118,7 @@ pub fn byteslice_from_cbor(bytes: &[u8]) -> Result<(Vec<u8>, usize), CborError> 
                 v.extend_from_slice(&bytes[9..9+data_len]);
                 bytes_read = 9+data_len;
             },
-            _ => return Err(CborError::Unexpected)
+            _ => return Err(CborError::Unexpected("Error from byteslice_from_cbor() function".to_owned()))
         };
         Ok((v, bytes_read))
 }
@@ -144,7 +144,7 @@ impl Cbor for u8 {
         match expected_data_item(bytes[0]) {
             DataItem::SmallInt(byte) => Ok((byte, 1)),
             DataItem::Uint1 => Ok((bytes[1], 2)),
-            _ => return Err(CborError::Unexpected)
+            _ => return Err(CborError::Unexpected("Error from u8 implementation".to_owned()))
         }
     }
 }
@@ -170,7 +170,7 @@ impl Cbor for u16 {
                 ]),
                 3
             )),
-            _ => return Err(CborError::Unexpected)
+            _ => return Err(CborError::Unexpected("Error from u16 implementation".to_owned()))
         }
     }
 }
@@ -201,7 +201,7 @@ impl Cbor for u32 {
                 5
             )
             ),
-            _ => return Err(CborError::Unexpected)
+            _ => return Err(CborError::Unexpected("Error from u32 implementation".to_owned()))
         }
     }
 }
@@ -237,7 +237,7 @@ impl Cbor for u64 {
                 bytes[8]
             ]), 
             9)),
-            _ => return Err(CborError::Unexpected)
+            _ => return Err(CborError::Unexpected("Error from u64 implementation".to_owned()))
         }
     }
 }
@@ -274,7 +274,7 @@ impl Cbor for usize {
                 bytes[8]
             ]) as usize, 
             9)),
-            _ => return Err(CborError::Unexpected)
+            _ => return Err(CborError::Unexpected("Error from usize implementation".to_owned()))
         }
     }
 }
@@ -305,7 +305,7 @@ impl Cbor for i8 {
             DataItem::NegUint1 => Ok((i8::from_be_bytes([
                 bytes[1]
             ]), 2)),
-            _ => return Err(CborError::Unexpected)
+            _ => return Err(CborError::Unexpected("Error from i8 implementation".to_owned()))
         }
     }
 }
@@ -337,7 +337,7 @@ impl Cbor for i16 {
                 bytes[1], 
                 bytes[2]
             ]), 3)),
-            _ => return Err(CborError::Unexpected)
+            _ => return Err(CborError::Unexpected("Error from i16 implementation".to_owned()))
         }
     }
 }
@@ -373,7 +373,7 @@ impl Cbor for i32 {
                 bytes[3],
                 bytes[4],
             ]), 5)),
-            _ => return Err(CborError::Unexpected)
+            _ => return Err(CborError::Unexpected("Error from i32 implementation".to_owned()))
         }
     }
 }
@@ -417,7 +417,7 @@ impl Cbor for i64 {
                 bytes[7],
                 bytes[8],
             ]), 9)),
-            _ => return Err(CborError::Unexpected)
+            _ => return Err(CborError::Unexpected("Error from i64 implementation".to_owned()))
         }
     }
 }
@@ -444,7 +444,7 @@ impl Cbor for f32 {
                 bytes[3],
                 bytes[4]
             ]), 5)),
-            _ => return Err(CborError::Unexpected)
+            _ => return Err(CborError::Unexpected("Error from f32 implementation".to_owned()))
         }
     }
 }
@@ -479,7 +479,7 @@ impl Cbor for f64 {
                 bytes[7],
                 bytes[8]
             ]), 9)),
-            _ => return Err(CborError::Unexpected)
+            _ => return Err(CborError::Unexpected("Error from f64 implementation".to_owned()))
         }
     }
 }
@@ -504,11 +504,12 @@ impl Cbor for String {
     {
         let mut v = String::new();
         let bytes_read;
+        println!("bytes[0]: {:x}", bytes[0]);
         match expected_data_item(bytes[0]) {
             DataItem::SmallTextString(byte) => {
                 let encoded_text = match std::str::from_utf8(&bytes[1..1+byte as usize]) {
                     Ok(text) => text,
-                    Err(_) => return Err(CborError::IllFormed),
+                    Err(_) => return Err(CborError::IllFormed(format!("Decoded string is not valid utf-8"))),
                 };
                 v.push_str(encoded_text);
                 bytes_read = v.len() + 1;
@@ -526,12 +527,12 @@ impl Cbor for String {
                     ]) as usize;
                 let encoded_text = match std::str::from_utf8(&bytes[9..9+data_len]) {
                     Ok(text) => text,
-                    Err(_) => return Err(CborError::IllFormed),
+                    Err(_) => return Err(CborError::IllFormed(format!("Decoded string is not valid utf-8"))),
                 };
                 v.push_str(encoded_text);
                 bytes_read = v.len() + 9;
             },
-            _ => return Err(CborError::Unexpected)
+            _ => return Err(CborError::Unexpected("Error from String implementation".to_owned()))
         };
         Ok((v, bytes_read))
     }
@@ -582,7 +583,7 @@ impl<T> Cbor for Vec<T> where T: Cbor {
                     count += 1;
                 }
             },
-            _ => return Err(CborError::Unexpected)
+            _ => return Err(CborError::Unexpected(format!("Error from {} implementation", type_name::<T>())))
         }
         Ok((v, i))
     }
@@ -643,7 +644,7 @@ where
                     count += 1;
                 }
             },
-            _ => return Err(CborError::Unexpected)
+            _ => return Err(CborError::Unexpected(format!("Error from HashMap<{}, {}> implementation", type_name::<K>(), type_name::<V>())))
         }
         Ok((map, i))
     }
@@ -705,7 +706,7 @@ where
                     count += 1;
                 }
             },
-            _ => return Err(CborError::Unexpected)
+            _ => return Err(CborError::Unexpected(format!("Error from BTreeMap<{}, {}> implementation", type_name::<K>(), type_name::<V>())))
         }
         Ok((map, i))
     }
@@ -714,9 +715,9 @@ where
 ///This is a sample impl for an enum.
 #[derive(PartialEq, PartialOrd, Debug)]
 pub enum Item {
-    Int(i32),
-    Float(f32),
-    String(String),
+    Int(Vec<i32>),
+    Float(Vec<f32>),
+    String(Vec<String>),
 }
 
 impl Cbor for Item {
@@ -746,20 +747,20 @@ impl Cbor for Item {
         match expected_data_item(bytes[0]) {
             DataItem::Tag(byte) => match byte {
                 0 => {
-                    let (item, bytes_read) = <i32 as Cbor>::from_cbor_bytes(&bytes[1..])?;
-                    Ok((Self::Int(item), bytes_read))
+                    let (item, bytes_read) = <Vec<i32> as Cbor>::from_cbor_bytes(&bytes[1..])?;
+                    Ok((Self::Int(item), bytes_read+1)) // The +1 is to account for the Tag
                 },
                 1 => {
-                    let (item, bytes_read) = <f32 as Cbor>::from_cbor_bytes(&bytes[1..])?;
-                    Ok((Self::Float(item), bytes_read))
+                    let (item, bytes_read) = <Vec<f32> as Cbor>::from_cbor_bytes(&bytes[1..])?;
+                    Ok((Self::Float(item), bytes_read+1)) // The +1 is to account for the Tag
                 },
                 2 => {
-                    let (item, bytes_read) = <String as Cbor>::from_cbor_bytes(&bytes[1..])?;
-                    Ok((Self::String(item), bytes_read))
+                    let (item, bytes_read) = <Vec<String> as Cbor>::from_cbor_bytes(&bytes[1..])?;
+                    Ok((Self::String(item), bytes_read+1)) // The +1 is to account for the Tag
                 },
-                _ => Err(CborError::Unexpected)
+                _ => Err(CborError::Unexpected(format!("Error from Item implementation. Expected either 0x0, 0x1, or 0x2. Got {:x}", byte)))
             },
-            _ => Err(CborError::Unexpected)
+            _ => Err(CborError::Unexpected(format!("Error from Item implementation."))),
         }
     }
 }
@@ -924,18 +925,32 @@ mod tests {
         for i in 0..30 {
             map.insert(i, format!("value number {}", i));
         }
+        println!("plain: {:x?}", map);
+
         let bytes = map.to_cbor_bytes();
         let decoded_map: BTreeMap<i32, String> = decode_cbor(&bytes).unwrap();
+        println!("decoded: {:x?}", decoded_map);
         assert_eq!(map, decoded_map);
     }
 
     #[test]
     fn test_enum() {
-        let mut item = Item::Float(5.0);
+        let mut item = Item::Int(vec![1,2,10]);
         let bytes = item.to_cbor_bytes();
         let decoded_bytes = decode_cbor(&bytes).unwrap();
         assert_eq!(item, decoded_bytes);
     }
 
+    #[test]
+    fn test_btreemap_of_enums() {
+        let mut map = HashMap::new();
+        for i in 0..3 {
+            map.insert(format!("{}",i),  Item::Int(vec![i, i+1, i+2]));
+        }
+        let bytes = map.to_cbor_bytes();
+        println!("bytes: {:x?}", bytes);
+        let decoded_map: HashMap<String, Item> = decode_cbor(&bytes).unwrap();
+        assert_eq!(map, decoded_map);
+    }
 
 }
