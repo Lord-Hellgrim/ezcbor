@@ -1,4 +1,4 @@
-use std::{any::type_name, collections::{BTreeMap, HashMap, HashSet}, hash::Hash};
+use std::{any::type_name, collections::{BTreeMap, BTreeSet, HashMap, HashSet}, hash::Hash};
 
 
 pub enum DataItem {
@@ -626,6 +626,55 @@ impl<T> Cbor for HashSet<T> where T: Cbor + Hash + Eq {
             Self: Sized 
     {
         let mut v = HashSet::new();
+        let mut i = 0;
+        match expected_data_item(bytes[0]) {
+            DataItem::SmallArray(byte) => {
+                i += 1;
+                let mut count = 0;
+                while count < byte {
+                    let (t, bytes_read) = <T as Cbor>::from_cbor_bytes(&bytes[i..])?;
+                    v.insert(t);
+                    i += bytes_read;
+                    count += 1;
+                }
+            }
+            DataItem::Array8 => {
+                let data_len = u64::from_be_bytes([bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8]]) as usize;
+                i += 9;
+                let mut count = 0;
+                while count < data_len {
+                    let (t, bytes_read) = <T as Cbor>::from_cbor_bytes(&bytes[i..])?;
+                    v.insert(t);
+                    i += bytes_read;
+                    count += 1;
+                }
+            },
+            _ => return Err(CborError::Unexpected(format!("Error from {} implementation", type_name::<T>())))
+        }
+        Ok((v, i))
+    }
+}
+
+impl<T> Cbor for BTreeSet<T> where T: Cbor + Hash + Eq + Ord {
+    fn to_cbor_bytes(&self) -> Vec<u8> {
+        let mut v = Vec::new();
+        if self.len() < 24 {
+            v.push(0x80 + self.len() as u8);
+        } else {
+            v.push(0x9b);
+            v.extend_from_slice(&self.len().to_be_bytes());
+        }
+        for item in self {
+            v.extend_from_slice(&item.to_cbor_bytes());
+        }
+        v
+    }
+
+    fn from_cbor_bytes(bytes: &[u8]) -> Result<(Self, usize), CborError>
+        where 
+            Self: Sized 
+    {
+        let mut v = BTreeSet::new();
         let mut i = 0;
         match expected_data_item(bytes[0]) {
             DataItem::SmallArray(byte) => {
